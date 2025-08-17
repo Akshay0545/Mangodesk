@@ -6,34 +6,36 @@ const crypto = require('crypto');
 const aiService = new AIService();
 const emailService = new EmailService();
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 const summaryController = {
   // Generate new summary
   async generateSummary(req, res) {
     try {
       const { transcript, prompt, title } = req.body;
 
-      if (!transcript) {
+      if (!transcript || typeof transcript !== 'string' || !transcript.trim()) {
         return res.status(400).json({ error: 'Transcript is required' });
       }
 
       const summaryContent = await aiService.generateSummary(transcript, prompt);
 
       const summary = new Summary({
-        title: title || 'Untitled Summary',
-        content: summaryContent,
-        originalTranscript: transcript,
+        title: title?.trim() || 'Untitled Summary',
+        content: summaryContent,                  // <- store ONLY the summary here
+        originalTranscript: transcript,          // raw transcript stored separately
         prompt: prompt || 'Generate a concise summary of this transcript'
       });
 
       await summary.save();
 
-      res.status(201).json({
+      return res.status(201).json({
         message: 'Summary generated successfully',
         summary
       });
     } catch (error) {
       console.error('Generate summary error:', error);
-      res.status(500).json({ error: 'Failed to generate summary' });
+      return res.status(500).json({ error: 'Failed to generate summary' });
     }
   },
 
@@ -41,10 +43,10 @@ const summaryController = {
   async getAllSummaries(req, res) {
     try {
       const summaries = await Summary.find().sort({ createdAt: -1 });
-      res.json(summaries);
+      return res.json(summaries);
     } catch (error) {
       console.error('Get summaries error:', error);
-      res.status(500).json({ error: 'Failed to fetch summaries' });
+      return res.status(500).json({ error: 'Failed to fetch summaries' });
     }
   },
 
@@ -53,41 +55,33 @@ const summaryController = {
     try {
       const { id } = req.params;
       const summary = await Summary.findById(id);
-
-      if (!summary) {
-        return res.status(404).json({ error: 'Summary not found' });
-      }
-
-      res.json(summary);
+      if (!summary) return res.status(404).json({ error: 'Summary not found' });
+      return res.json(summary);
     } catch (error) {
       console.error('Get summary error:', error);
-      res.status(500).json({ error: 'Failed to fetch summary' });
+      return res.status(500).json({ error: 'Failed to fetch summary' });
     }
   },
 
-  // Update summary
+  // Update summary (only provided fields)
   async updateSummary(req, res) {
     try {
       const { id } = req.params;
-      const { content, title } = req.body;
+      const updates = {};
+      if (typeof req.body.content === 'string') updates.content = req.body.content;
+      if (typeof req.body.title === 'string') updates.title = req.body.title;
 
-      const summary = await Summary.findByIdAndUpdate(
-        id,
-        { content, title },
-        { new: true }
-      );
-
-      if (!summary) {
-        return res.status(404).json({ error: 'Summary not found' });
+      if (!Object.keys(updates).length) {
+        return res.status(400).json({ error: 'Nothing to update' });
       }
 
-      res.json({
-        message: 'Summary updated successfully',
-        summary
-      });
+      const summary = await Summary.findByIdAndUpdate(id, { $set: updates }, { new: true });
+      if (!summary) return res.status(404).json({ error: 'Summary not found' });
+
+      return res.json({ message: 'Summary updated successfully', summary });
     } catch (error) {
       console.error('Update summary error:', error);
-      res.status(500).json({ error: 'Failed to update summary' });
+      return res.status(500).json({ error: 'Failed to update summary' });
     }
   },
 
@@ -96,15 +90,11 @@ const summaryController = {
     try {
       const { id } = req.params;
       const summary = await Summary.findByIdAndDelete(id);
-
-      if (!summary) {
-        return res.status(404).json({ error: 'Summary not found' });
-      }
-
-      res.json({ message: 'Summary deleted successfully' });
+      if (!summary) return res.status(404).json({ error: 'Summary not found' });
+      return res.json({ message: 'Summary deleted successfully' });
     } catch (error) {
       console.error('Delete summary error:', error);
-      res.status(500).json({ error: 'Failed to delete summary' });
+      return res.status(500).json({ error: 'Failed to delete summary' });
     }
   },
 
@@ -112,10 +102,22 @@ const summaryController = {
   async shareSummary(req, res) {
     try {
       const { id } = req.params;
-      const { emails } = req.body;
+      const raw = req.body.emails;
 
-      if (!emails || !Array.isArray(emails) || emails.length === 0) {
+      // Accept array or comma-separated string
+      const emails = Array.isArray(raw)
+        ? raw
+        : String(raw || '')
+            .split(',')
+            .map(e => e.trim())
+            .filter(Boolean);
+
+      if (!emails.length) {
         return res.status(400).json({ error: 'At least one email is required' });
+      }
+      const invalid = emails.filter(e => !EMAIL_RE.test(e));
+      if (invalid.length) {
+        return res.status(400).json({ error: `Invalid emails: ${invalid.join(', ')}` });
       }
 
       const summary = await Summary.findById(id);
@@ -128,49 +130,48 @@ const summaryController = {
         summary.shareToken = crypto.randomBytes(16).toString('hex');
       }
 
-      // Add emails to sharedWith
-      const newEmails = emails.filter(email => 
-        !summary.sharedWith.some(shared => shared.email === email)
-      );
-
-      summary.sharedWith.push(...newEmails.map(email => ({ email })));
-      await summary.save();
-
-      // Send emails
-      const shareUrl = `${req.protocol}://${req.get('host')}/api/summary/shared/${summary.shareToken}`;
-      
-      for (const email of emails) {
-        await emailService.sendSummaryEmail(email, summary.title, shareUrl);
+      // De-duplicate; only add new recipients
+      const existing = new Set((summary.sharedWith || []).map(s => s.email));
+      const toAdd = emails.filter(e => !existing.has(e.toLowerCase()));
+      if (toAdd.length) {
+        summary.sharedWith.push(...toAdd.map(email => ({ email: email.toLowerCase() })));
+        summary.isShared = true;
+        await summary.save();
       }
 
-      res.json({
-        message: 'Summary shared successfully',
-        summary
-      });
+      // Public URL (prefer frontend domain)
+      const FE_BASE = process.env.FRONTEND_PUBLIC_BASE_URL?.trim();
+      const BE_BASE = process.env.PUBLIC_BASE_URL?.trim() || `${req.protocol}://${req.get('host')}`;
+      const viewUrl = FE_BASE
+        ? `${FE_BASE}/shared/${summary.shareToken}`
+        : `${BE_BASE}/api/summary/shared/${summary.shareToken}`;
+
+      // Email ONLY the summary content + public link
+      const summaryOnly = summary.content || '';
+      const target = toAdd.length ? toAdd : emails;
+      for (const email of target) {
+        await emailService.sendSummaryEmail(email, summary.title, summaryOnly, viewUrl);
+      }
+
+      return res.json({ message: 'Summary shared successfully', summary });
     } catch (error) {
       console.error('Share summary error:', error);
-      res.status(500).json({ error: 'Failed to share summary' });
+      return res.status(500).json({ error: 'Failed to share summary' });
     }
   },
 
-  // Get shared summary
+  // Get shared summary (read-only link)
   async getSharedSummary(req, res) {
     try {
       const { token } = req.params;
       const summary = await Summary.findOne({ shareToken: token });
-
-      if (!summary) {
-        return res.status(404).json({ error: 'Shared summary not found' });
-      }
-
-      res.json(summary);
+      if (!summary) return res.status(404).json({ error: 'Shared summary not found' });
+      return res.json(summary);
     } catch (error) {
       console.error('Get shared summary error:', error);
-      res.status(500).json({ error: 'Failed to fetch shared summary' });
+      return res.status(500).json({ error: 'Failed to fetch shared summary' });
     }
   }
 };
-
-
 
 module.exports = summaryController;
