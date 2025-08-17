@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
 import { summaryAPI } from '../services/api';
+import { useToast } from './Toast';
 
 export default function EmailShare({ summaryId, onShared }) {
   const [emails, setEmails] = useState('');
   const [isSharing, setIsSharing] = useState(false);
   const [shared, setShared] = useState([]);
+  const toast = useToast();
 
   const isValid = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 
@@ -12,7 +14,7 @@ export default function EmailShare({ summaryId, onShared }) {
     e.preventDefault();
     const list = emails.split(',').map((s) => s.trim()).filter((s) => s && isValid(s));
     if (!list.length) {
-      alert('Please enter at least one valid email address.');
+      toast.push('Enter at least one valid email', 'error');
       return;
     }
     setIsSharing(true);
@@ -21,9 +23,10 @@ export default function EmailShare({ summaryId, onShared }) {
       setShared((prev) => [...prev, ...list]);
       setEmails('');
       onShared?.(res.summary);
+      toast.push('Shared successfully', 'success');
     } catch (err) {
       console.error(err);
-      alert('Failed to share summary.');
+      toast.push('Failed to share', 'error');
     } finally {
       setIsSharing(false);
     }
@@ -31,14 +34,14 @@ export default function EmailShare({ summaryId, onShared }) {
 
   return (
     <div className="w-full space-y-3">
-      <h2 className="text-lg font-semibold">Share via Email</h2>
+      <h2 className="text-lg font-semibold dark:text-gray-100">Share via Email</h2>
       <form onSubmit={share} className="space-y-2">
         <input
           type="text"
           value={emails}
           onChange={(e) => setEmails(e.target.value)}
           placeholder="email1@example.com, email2@example.com"
-          className="w-full rounded-lg border border-gray-300 p-3 text-sm outline-none focus:ring-2 focus:ring-blue-400"
+          className="w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 p-3 text-sm outline-none focus:ring-2 focus:ring-blue-400 dark:text-gray-100"
         />
         <button
           type="submit"
@@ -50,8 +53,8 @@ export default function EmailShare({ summaryId, onShared }) {
       </form>
 
       {shared.length > 0 && (
-        <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
-          <div className="text-sm text-gray-700">
+        <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 p-3">
+          <div className="text-sm text-gray-700 dark:text-gray-200">
             Shared with: <span className="font-medium">{shared.join(', ')}</span>
           </div>
         </div>

@@ -2,7 +2,11 @@
 @tailwind components;
 @tailwind utilities;
 
-/* App-level helpers */
-html, body, #root {
-  height: 100%;
+html, body, #root { height: 100%; }
+
+* {
+  transition: background-color .2s ease, color .2s ease, border-color .2s ease;
 }
+.prose { color: inherit; }
+.prose p { margin: 0.5rem 0; }
+.dark .prose { color: inherit; }
