@@ -162,7 +162,7 @@ const summaryController = {
         ? `${FE_BASE}/shared/${summary.shareToken}`
         : `${BE_BASE}/api/summary/shared/${summary.shareToken}`;
 
-      // Email ONLY the summary content + public link
+      // Email ONLY the summary content
       const summaryOnly = summary.content || "";
       const target = toAdd.length ? toAdd : emails;
 
