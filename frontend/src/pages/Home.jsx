@@ -3,6 +3,8 @@ import UploadForm from '../components/UploadForm';
 import PromptInput from '../components/PromptInput';
 import SummaryEditor from '../components/SummaryEditor';
 import EmailShare from '../components/EmailShare';
+import SummaryList from '../components/SummaryList';
+import Spinner from '../components/Spinner';
 import { summaryAPI } from '../services/api';
 
 export default function Home() {
@@ -11,82 +13,89 @@ export default function Home() {
   const [summaryDoc, setSummaryDoc] = useState(null);
   const [isGenerating, setIsGenerating] = useState(false);
 
-  const handleGenerateSummary = async () => {
+  const generate = async () => {
     if (!transcript.trim()) {
       alert('Please provide a transcript first');
       return;
     }
     setIsGenerating(true);
     try {
-      const res = await summaryAPI.generateSummary({
-        transcript,
-        prompt,
-        title: 'Generated Summary',
-      });
-      // res.summary is the whole document ({ _id, content, ... })
+      const res = await summaryAPI.generateSummary({ transcript, prompt, title: 'Generated Summary' });
       setSummaryDoc(res.summary);
-    } catch (err) {
-      console.error(err);
-      alert('Failed to generate summary. Please try again.');
+    } catch (e) {
+      console.error(e);
+      alert('Failed to generate summary.');
     } finally {
       setIsGenerating(false);
     }
   };
 
-  const handleSaveFromEditor = (updated) => {
-    // If API returns { ok, summary: "<string>" }, update the field only
-    if (typeof updated === 'string') {
-      setSummaryDoc((prev) => ({ ...prev, content: updated }));
-    } else {
-      // If API returns the full doc, just set it
-      setSummaryDoc(updated);
-    }
-  };
-
-  const handleShared = (updatedDoc) => {
-    if (updatedDoc?._id) setSummaryDoc(updatedDoc);
-  };
+  const onPickSummary = (doc) => setSummaryDoc(doc);
+  const onSaved = (updated) => setSummaryDoc(updated);
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-blue-600 text-white">
-        <div className="mx-auto max-w-6xl px-4 py-8 text-center">
-          <h1 className="text-3xl font-bold">Minutes-AI</h1>
-          <p className="mt-1 text-white/90">AI-powered transcript summarization</p>
-        </div>
-      </header>
-
-      <main className="mx-auto max-w-6xl px-4 py-6 space-y-6">
-        <section className="rounded-2xl bg-white p-5 shadow-sm">
+    <main className="mx-auto max-w-6xl px-4 py-6">
+      {/* Top grid: inputs */}
+      <div className="grid gap-6 md:grid-cols-2">
+        <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
           <UploadForm onTranscriptLoaded={setTranscript} />
         </section>
 
-        <section className="rounded-2xl bg-white p-5 shadow-sm">
+        <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
           <PromptInput onPromptChange={setPrompt} defaultPrompt={prompt} />
+          <div className="mt-4 flex items-center justify-end">
+            <button
+              onClick={generate}
+              disabled={!transcript || isGenerating}
+              className="inline-flex items-center rounded-lg bg-indigo-600 px-5 py-2.5 text-white text-sm font-medium hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isGenerating ? <Spinner label="Generating…" /> : 'Generate Summary'}
+            </button>
+          </div>
+        </section>
+      </div>
+
+      {/* Bottom grid: left list, right editor/share */}
+      <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_2fr]">
+        <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+          <SummaryList selectedId={summaryDoc?._id} onSelect={onPickSummary} />
         </section>
 
-        <section className="flex justify-center">
-          <button
-            onClick={handleGenerateSummary}
-            disabled={!transcript || isGenerating}
-            className="inline-flex items-center rounded-lg bg-green-600 px-5 py-2.5 text-white text-sm font-medium hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {isGenerating ? 'Generating...' : 'Generate Summary'}
-          </button>
+        <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+          {summaryDoc ? (
+            <div className="grid gap-6">
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">Title</label>
+                <input
+                  type="text"
+                  value={summaryDoc.title || ''}
+                  onChange={(e) =>
+                    setSummaryDoc((prev) => ({ ...prev, title: e.target.value }))
+                  }
+                  onBlur={async () => {
+                    try {
+                      if (summaryDoc?._id) {
+                        const res = await summaryAPI.updateSummary(summaryDoc._id, { title: summaryDoc.title });
+                        setSummaryDoc(res.summary);
+                      }
+                    } catch (e) {
+                      console.error(e);
+                    }
+                  }}
+                  className="w-full rounded-lg border border-gray-300 p-2 text-sm outline-none focus:ring-2 focus:ring-blue-400"
+                />
+              </div>
+
+              <SummaryEditor summary={summaryDoc} onSave={onSaved} />
+              <EmailShare summaryId={summaryDoc._id} onShared={setSummaryDoc} />
+            </div>
+          ) : (
+            <div className="flex h-full items-center justify-center text-sm text-gray-500">
+              Select a summary on the left or generate a new one to start editing.
+            </div>
+          )}
         </section>
-
-        {summaryDoc && (
-          <>
-            <section>
-              <SummaryEditor summary={summaryDoc} onSave={handleSaveFromEditor} />
-            </section>
-
-            <section>
-              <EmailShare summaryId={summaryDoc._id} onShared={handleShared} />
-            </section>
-          </>
-        )}
-      </main>
-    </div>
+      </div>
+    </main>
   );
 }
