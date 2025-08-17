@@ -30,49 +30,44 @@ class EmailService {
     }
   }
 
+  // Minimal Markdown → HTML (safe subset). No links/buttons.
+  _mdToHtml(md = '') {
+    return md
+      .replace(/^### (.*)$/gm, '<h3 style="margin:12px 0 6px;">$1</h3>')
+      .replace(/^## (.*)$/gm, '<h2 style="margin:14px 0 8px;">$1</h2>')
+      .replace(/^# (.*)$/gm, '<h1 style="margin:16px 0 10px;">$1</h1>')
+      .replace(/^- (.*)$/gm, '<li>$1</li>')
+      .replace(/\n{2,}/g, '</p><p>')
+      .replace(/\n/g, '<br/>');
+  }
+
   /**
-   * Sends ONLY the summary body, plus a "View Online" button.
+   * Send ONLY the summary body. No "View Online" link or button.
    * @param {string} toEmail
    * @param {string} summaryTitle
-   * @param {string} summaryMarkdown  // ONLY the summary
-   * @param {string} viewUrl          // public URL (not localhost)
+   * @param {string} summaryMarkdown  // ONLY the summary text in Markdown
    */
-  async sendSummaryEmail(toEmail, summaryTitle, summaryMarkdown, viewUrl) {
+  async sendSummaryEmail(toEmail, summaryTitle, summaryMarkdown) {
     if (!this.transporter) {
       console.warn('Email service disabled - configuration missing');
       return { messageId: 'mock-email-id', warning: 'Email service disabled' };
     }
 
     const from = process.env.EMAIL_FROM || process.env.SMTP_FROM || process.env.EMAIL_USER;
+    const subject = `Summary: ${summaryTitle || 'Shared Summary'}`;
 
-    // Convert a simple subset of Markdown bullets to HTML (minimal safe)
-    const htmlSummary = summaryMarkdown
-      .replace(/^### (.*)$/gm, '<h3>$1</h3>')
-      .replace(/^## (.*)$/gm, '<h2>$1</h2>')
-      .replace(/^# (.*)$/gm, '<h1>$1</h1>')
-      .replace(/^- (.*)$/gm, '<li>$1</li>')
-      .replace(/\n{2,}/g, '</p><p>');
-
+    // Build a very simple HTML with just the summary content
+    const htmlSummary = this._mdToHtml(summaryMarkdown || '');
     const html =
 `<div style="font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; max-width: 680px; margin: 0 auto;">
-  <h2 style="margin: 0 0 12px;">${summaryTitle || 'Shared Summary'}</h2>
-  <p style="margin: 0 0 16px; color: #555;">Here’s the summary you were sent.</p>
+  <h2 style="margin:0 0 12px;">${summaryTitle || 'Shared Summary'}</h2>
   <div style="border:1px solid #eee; border-radius:12px; padding:16px; background:#fafafa;">
-    <div>
-      <p>${htmlSummary}</p>
-    </div>
+    <p style="margin:0;">${htmlSummary}</p>
   </div>
-  ${viewUrl ? `
-  <p style="margin: 16px 0 0;">
-    <a href="${viewUrl}" style="background:#2563eb;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none;display:inline-block;">View Online</a>
-  </p>
-  <p style="color:#777; font-size:12px; margin-top:8px;">
-    If the button doesn't work, copy this link: ${viewUrl}
-  </p>` : ''}
 </div>`;
 
-    const subject = `Summary: ${summaryTitle || 'Shared Summary'}`;
-    const text = summaryMarkdown + (viewUrl ? `\n\nView online: ${viewUrl}` : '');
+    // Plain-text fallback (just the markdown)
+    const text = summaryMarkdown || '';
 
     try {
       const result = await this.transporter.sendMail({ from, to: toEmail, subject, text, html });
