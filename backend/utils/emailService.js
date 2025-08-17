@@ -24,6 +24,9 @@ class EmailService {
         secure,
         auth: { user, pass },
       });
+
+      // Save user for fallback “From” construction
+      this.authUser = user;
     } catch (error) {
       console.error('Failed to create email transporter:', error.message);
       this.transporter = null;
@@ -53,14 +56,22 @@ class EmailService {
       return { messageId: 'mock-email-id', warning: 'Email service disabled' };
     }
 
-    const from = process.env.EMAIL_FROM || process.env.SMTP_FROM || process.env.EMAIL_USER;
-    const subject = `Summary: ${summaryTitle || 'Shared Summary'}`;
+    const brand = process.env.BRAND_NAME?.trim() || 'Minutes-AI';
+
+    // ✅ Force the display name to "Minutes-AI" when EMAIL_FROM is not provided
+    const fromEnv = process.env.EMAIL_FROM || process.env.SMTP_FROM;
+    const displayFrom = fromEnv && fromEnv.includes('<')
+      ? fromEnv
+      : `${brand} <${fromEnv || this.authUser}>`;
+
+    // ✅ Branded subject
+    const subject = `${brand} | ${summaryTitle || 'Transcript Summary'}`;
 
     // Build a very simple HTML with just the summary content
     const htmlSummary = this._mdToHtml(summaryMarkdown || '');
     const html =
 `<div style="font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; max-width: 680px; margin: 0 auto;">
-  <h2 style="margin:0 0 12px;">${summaryTitle || 'Shared Summary'}</h2>
+  <h2 style="margin:0 0 12px;">${summaryTitle || 'Transcript Summary'}</h2>
   <div style="border:1px solid #eee; border-radius:12px; padding:16px; background:#fafafa;">
     <p style="margin:0;">${htmlSummary}</p>
   </div>
@@ -70,7 +81,13 @@ class EmailService {
     const text = summaryMarkdown || '';
 
     try {
-      const result = await this.transporter.sendMail({ from, to: toEmail, subject, text, html });
+      const result = await this.transporter.sendMail({
+        from: displayFrom,          // 👈 shows as “Minutes-AI <youremail@…>”
+        to: toEmail,
+        subject,
+        text,
+        html
+      });
       console.log('Email sent:', result.messageId);
       return result;
     } catch (error) {

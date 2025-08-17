@@ -51,7 +51,7 @@ export default function Home() {
     <div className="min-h-screen bg-gray-50">
       <header className="bg-blue-600 text-white">
         <div className="mx-auto max-w-6xl px-4 py-8 text-center">
-          <h1 className="text-3xl font-bold">MangoDesk</h1>
+          <h1 className="text-3xl font-bold">Minutes-AI</h1>
           <p className="mt-1 text-white/90">AI-powered transcript summarization</p>
         </div>
       </header>
